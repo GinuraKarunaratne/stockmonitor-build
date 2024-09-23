@@ -1,76 +1,112 @@
 package org.example;
 
-import com.google.gson.JsonObject;
-import com.google.gson.Gson;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
+import javafx.application.Application;
+import javafx.application.Platform;
+import javafx.scene.Scene;
+import javafx.scene.chart.LineChart;
+import javafx.scene.chart.NumberAxis;
+import javafx.scene.chart.XYChart;
+import javafx.stage.Stage;
 
-import java.io.IOException;
+import java.util.LinkedList;
+import java.util.Queue;
+import java.util.Random;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-public class App {
+public class App extends Application {
 
-    private static final String API_KEY = "EBEKZVO5UOK7O0MX"; // Replace with your Alpha Vantage API key
-    private static final String SYMBOL = "IBM"; // Stock symbol (e.g., IBM)
+    private final Queue<StockData> stockDataQueue = new LinkedList<>();
+    private LineChart<Number, Number> lineChart;
+    private XYChart.Series<Number, Number> series;
+    private ScheduledExecutorService executor;
+    private Random random = new Random(); // For generating mock stock prices
 
-    public static void main(String[] args) throws InterruptedException {
-        OkHttpClient client = new OkHttpClient();
-        Gson gson = new Gson();
+    @Override
+    public void start(Stage primaryStage) {
+        // Create axes
+        NumberAxis xAxis = new NumberAxis();
+        NumberAxis yAxis = new NumberAxis();
+        xAxis.setLabel("Time (ms)");
+        yAxis.setLabel("Stock Price ($)");
 
-        while (true) {
-            try {
-                System.out.println("Fetching stock data...");
-                String url = "https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=" + SYMBOL + "&apikey=" + API_KEY;
-                Request request = new Request.Builder().url(url).build();
-                Response response = client.newCall(request).execute();
+        // Create line chart
+        lineChart = new LineChart<>(xAxis, yAxis);
+        lineChart.setTitle("Dow Jones Industrial Average");
 
-                // Log the response status
-                System.out.println("Response status: " + response.code());
+        // Create series for data
+        series = new XYChart.Series<>();
+        series.setName("DJIA");
 
-                if (response.isSuccessful()) {
-                    String jsonData = response.body().string();
-                    JsonObject jsonObject = gson.fromJson(jsonData, JsonObject.class);
+        // Add series to chart
+        lineChart.getData().add(series);
 
-                    // Check for API rate limit and error messages
-                    if (jsonObject.has("Note")) {
-                        System.err.println("API call limit reached. Please wait before making more requests.");
-                        break; // Exit the loop to avoid continuous calls
-                    }
+        // Create scene with chart
+        Scene scene = new Scene(lineChart, 800, 600);
+        primaryStage.setScene(scene);
+        primaryStage.setTitle("Stock Price Tracker");
+        primaryStage.show();
 
-                    if (jsonObject.has("Error Message")) {
-                        System.err.println("Error: " + jsonObject.get("Error Message").getAsString());
-                        break; // Exit the loop on error
-                    }
+        // Schedule task to fetch mock stock data every 5 seconds
+        executor = Executors.newScheduledThreadPool(1);
+        executor.scheduleAtFixedRate(this::fetchMockStockData, 0, 5, TimeUnit.SECONDS);
+    }
 
-                    // Extract the daily time series data
-                    JsonObject timeSeries = jsonObject.getAsJsonObject("Time Series (Daily)");
-                    if (timeSeries == null) {
-                        System.err.println("No time series data found in the response.");
-                        break; // Exit the loop on empty response
-                    }
+    private void fetchMockStockData() {
+        try {
+            // Simulate fetching stock data
+            double price = 25000 + (random.nextDouble() * 100); // Simulated price between 25000 and 25100
+            long timestamp = System.currentTimeMillis();
 
-                    // Get the latest date from the time series data
-                    String latestDate = timeSeries.keySet().iterator().next();
-                    JsonObject dailyData = timeSeries.getAsJsonObject(latestDate);
-                    double openPrice = dailyData.get("1. open").getAsDouble();
-                    double highPrice = dailyData.get("2. high").getAsDouble();
-                    double lowPrice = dailyData.get("3. low").getAsDouble();
-                    double closePrice = dailyData.get("4. close").getAsDouble();
-                    long volume = dailyData.get("5. volume").getAsLong();
+            // Store stock price and timestamp in the queue
+            StockData data = new StockData(timestamp, price);
+            stockDataQueue.add(data);
 
-                    // Print the daily stock data
-                    System.out.printf("Date: %s, Open: %.4f, High: %.4f, Low: %.4f, Close: %.4f, Volume: %d%n",
-                            latestDate, openPrice, highPrice, lowPrice, closePrice, volume);
-                } else {
-                    System.err.println("Error fetching stock data: " + response.message());
-                }
+            // Update series with new data point
+            Platform.runLater(() -> {
+                series.getData().add(new XYChart.Data<>(timestamp, price));
+            });
 
-            } catch (IOException e) {
-                System.err.println("Error fetching stock data: " + e.getMessage());
+            // Remove old data points to keep the chart clean (optional)
+            if (series.getData().size() > 10) {
+                series.getData().remove(0);
             }
 
-            TimeUnit.SECONDS.sleep(5); // Wait for 5 seconds before the next update
+            // Print the latest stock data (optional)
+            System.out.println("Mock Dow Jones Industrial Average: $" + price + " at " + timestamp);
+        } catch (Exception e) {
+            System.err.println("Error fetching stock data: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void stop() {
+        // Shutdown executor on application exit
+        if (executor != null) {
+            executor.shutdown();
+        }
+    }
+
+    public static void main(String[] args) {
+        launch(args);
+    }
+
+    private static class StockData {
+        private final long timestamp;
+        private final double price;
+
+        public StockData(long timestamp, double price) {
+            this.timestamp = timestamp;
+            this.price = price;
+        }
+
+        public long getTimestamp() {
+            return timestamp;
+        }
+
+        public double getPrice() {
+            return price;
         }
     }
 }
